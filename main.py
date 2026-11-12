@@ -8,11 +8,17 @@ import os
 import sqlite3
 from pathlib import Path
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 app = FastAPI(title="TaskFlow demo api-service", version="1.0.0")
+
+_SCHEMA = (
+    "CREATE TABLE IF NOT EXISTS tasks ("
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "title TEXT NOT NULL, status TEXT NOT NULL)"
+)
 
 
 class TaskStore:
@@ -35,18 +41,21 @@ class TaskStore:
         return conn
 
     def ping(self) -> None:
-        """Raise if the store cannot serve reads."""
+        """Raise if the store cannot serve reads.
+
+        Probes the actual tasks table, not just the connection: a
+        "SELECT 1" would succeed against a corrupt database file whose
+        task data is unreadable, reporting healthy while every task
+        request fails.
+        """
         with self._connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(_SCHEMA)
+            conn.execute("SELECT id FROM tasks LIMIT 1")
 
     def list_page(self, cursor: int, limit: int) -> tuple[list[dict], int | None]:
         # Fetch one extra row to know whether another page exists.
         with self._connect() as conn:
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS tasks ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                "title TEXT NOT NULL, status TEXT NOT NULL)"
-            )
+            conn.execute(_SCHEMA)
             rows = conn.execute(
                 "SELECT id, title, status FROM tasks "
                 "WHERE id > ? ORDER BY id LIMIT ?",
@@ -58,11 +67,7 @@ class TaskStore:
 
     def create(self, title: str, status: str) -> dict:
         with self._connect() as conn:
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS tasks ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                "title TEXT NOT NULL, status TEXT NOT NULL)"
-            )
+            conn.execute(_SCHEMA)
             cur = conn.execute(
                 "INSERT INTO tasks (title, status) VALUES (?, ?)", (title, status)
             )
@@ -71,11 +76,7 @@ class TaskStore:
 
     def get(self, task_id: int) -> dict | None:
         with self._connect() as conn:
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS tasks ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                "title TEXT NOT NULL, status TEXT NOT NULL)"
-            )
+            conn.execute(_SCHEMA)
             row = conn.execute(
                 "SELECT id, title, status FROM tasks WHERE id = ?", (task_id,)
             ).fetchone()
@@ -95,6 +96,14 @@ def _error(status_code: int, code: str, message: str) -> JSONResponse:
         status_code=status_code,
         content={"error": {"code": code, "message": message}},
     )
+
+
+@app.exception_handler(sqlite3.Error)
+def store_error_handler(request: Request, exc: sqlite3.Error) -> JSONResponse:
+    # A down store must still answer in the contract error envelope,
+    # never FastAPI's default 500 body. /health is exempt by design: it
+    # catches its own ping failures and reports the degraded shape.
+    return _error(503, "store_unavailable", "task store is unavailable")
 
 
 class TaskIn(BaseModel):

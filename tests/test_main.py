@@ -40,6 +40,32 @@ def test_health_degraded_when_store_is_down(tmp_path, monkeypatch):
     assert r.json() == {"status": "degraded", "checks": {"task_store": "down"}}
 
 
+def test_health_degraded_when_database_file_is_corrupt(tmp_path, monkeypatch):
+    # A file that exists but is not a database at all. A bare "SELECT 1"
+    # ping would still succeed here; probing the tasks table must not.
+    db = tmp_path / "tasks.db"
+    db.write_bytes(b"this is not a sqlite database")
+    monkeypatch.setattr(main, "store", main.TaskStore(str(db)))
+    r = client.get("/health")
+    assert r.status_code == 503
+    assert r.json() == {"status": "degraded", "checks": {"task_store": "down"}}
+
+
+def test_task_routes_use_error_envelope_when_store_is_down(tmp_path, monkeypatch):
+    broken = main.TaskStore(str(tmp_path / "missing-dir" / "tasks.db"))
+    monkeypatch.setattr(main, "store", broken)
+    expected = {
+        "error": {"code": "store_unavailable", "message": "task store is unavailable"}
+    }
+    for r in (
+        client.get("/v1/tasks"),
+        client.post("/v1/tasks", json={"title": "x"}),
+        client.get("/v1/tasks/1"),
+    ):
+        assert r.status_code == 503
+        assert r.json() == expected
+
+
 def test_tasks_survive_a_new_store_instance(fresh_store):
     # The point of the SQLite backing: data persists across store
     # instances (and, in production, across process restarts).
