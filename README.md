@@ -6,7 +6,7 @@ pagination). It is the code the rest of the workspace describes, reviews, and
 answers questions about.
 
 Part of [ai-workspace-kit](https://github.com/cynthiawang109-sudo/ai-workspace-kit).
-Fictional demo — in-memory storage, no real data.
+Fictional demo — tasks persist in a local SQLite file, no real data.
 
 ## Run
 
@@ -14,6 +14,11 @@ Fictional demo — in-memory storage, no real data.
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
+
+Tasks are stored in `tasks.db` next to `main.py`; set `TASKFLOW_DB_PATH`
+to use a different file. `/health` pings the store and reports
+`503 {"status": "degraded", "checks": {"task_store": "down"}}` when the
+database cannot be reached.
 
 - `GET /health` → `{"status": "ok"}`
 - `POST /v1/tasks` with `{"title": "..."}` → creates a task
