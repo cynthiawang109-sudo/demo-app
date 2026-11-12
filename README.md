@@ -1,5 +1,7 @@
 # demo-app
 
+[![tests](https://github.com/cynthiawang109-sudo/demo-app/actions/workflows/tests.yml/badge.svg)](https://github.com/cynthiawang109-sudo/demo-app/actions/workflows/tests.yml)
+
 A minimal FastAPI implementation of the TaskFlow `api-service`, built to the
 contracts in `taskflow-api-docs` (health check, error shape, cursor
 pagination). It is the code the rest of the workspace describes, reviews, and
