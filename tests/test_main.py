@@ -41,12 +41,21 @@ def test_task_round_trip():
 
 
 def test_get_missing_task_uses_contract_error_shape():
+    # Contract ("Errors" in api-conventions.md): a top-level "error"
+    # object - NOT wrapped in FastAPI's "detail".
     r = client.get("/v1/tasks/999999")
     assert r.status_code == 404
-    assert r.json()["detail"]["error"]["code"] == "task_not_found"
+    assert r.json() == {
+        "error": {"code": "task_not_found", "message": "task 999999 does not exist"}
+    }
 
 
 def test_create_task_rejects_invalid_status():
     r = client.post("/v1/tasks", json={"title": "x", "status": "bogus"})
     assert r.status_code == 422
-    assert r.json()["detail"]["error"]["code"] == "invalid_status"
+    assert r.json() == {
+        "error": {
+            "code": "invalid_status",
+            "message": "status must be todo, doing or done",
+        }
+    }

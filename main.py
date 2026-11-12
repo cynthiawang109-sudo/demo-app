@@ -4,7 +4,7 @@ Implements the slice of the TaskFlow API contract that the workspace demos
 exercise: the /health contract and a minimal in-memory tasks resource,
 following taskflow-api-docs/api-conventions.md.
 """
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -31,6 +31,16 @@ class TaskStore:
 
 
 store = TaskStore()
+
+
+def _error(status_code: int, code: str, message: str) -> JSONResponse:
+    # Error envelope per taskflow-api-docs ("Errors"): a top-level "error"
+    # object with a stable code. Raising HTTPException(detail=...) would
+    # wrap it in "detail", which is off-contract.
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": {"code": code, "message": message}},
+    )
 
 
 class TaskIn(BaseModel):
@@ -66,11 +76,7 @@ def list_tasks(cursor: int = Query(0), limit: int = Query(50, le=200)):
 @app.post("/v1/tasks", status_code=201)
 def create_task(task: TaskIn):
     if task.status not in ("todo", "doing", "done"):
-        raise HTTPException(
-            status_code=422,
-            detail={"error": {"code": "invalid_status",
-                              "message": "status must be todo, doing or done"}},
-        )
+        return _error(422, "invalid_status", "status must be todo, doing or done")
     item = {"id": store.next_id, "title": task.title, "status": task.status}
     store.tasks[store.next_id] = item
     store.next_id += 1
@@ -81,9 +87,5 @@ def create_task(task: TaskIn):
 def get_task(task_id: int):
     item = store.tasks.get(task_id)
     if item is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": {"code": "task_not_found",
-                              "message": f"task {task_id} does not exist"}},
-        )
+        return _error(404, "task_not_found", f"task {task_id} does not exist")
     return item
