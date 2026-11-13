@@ -4,16 +4,65 @@ Implements the slice of the TaskFlow API contract that the workspace demos
 exercise: the /health contract and a minimal tasks resource backed by a
 local SQLite file, following taskflow-api-docs/api-conventions.md.
 """
+import json
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
+from uuid import uuid4
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+
+class AccessLogMiddleware:
+    """TF-109: request IDs and one JSON access record, without buffering."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # taskflow-docs/observability.md ("Logs"): propagate the edge ID;
+        # TF-109 mints one here when the demo has no upstream edge.
+        request_id = Headers(scope=scope).get("x-request-id", str(uuid4()))
+        started = perf_counter()
+        status = 500
+
+        async def send_with_request_id(message: Message) -> None:
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+                MutableHeaders(scope=message)["X-Request-ID"] = request_id
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_with_request_id)
+        finally:
+            # observability.md: PII in logs is severity 1. Explicit fields
+            # only: no bodies, query string, or other headers. The demo
+            # has no authenticated user context, so user_id is omitted.
+            print(json.dumps({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "service": "demo-app",
+                "level": "error" if 500 <= status < 600 else "info",
+                "request_id": request_id,
+                "method": scope["method"],
+                "path": scope["path"],
+                "status": status,
+                "duration_ms": (perf_counter() - started) * 1000,
+            }), flush=True)
 
 app = FastAPI(title="TaskFlow demo api-service", version="1.0.0")
+app.add_middleware(AccessLogMiddleware)
 
 _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS tasks ("
