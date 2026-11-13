@@ -12,6 +12,7 @@ dead_lettered) and the attempt count are printed as JSON.
 
 import argparse
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -34,6 +35,13 @@ def main() -> None:
                         help="outbox file (default: digest-outbox.jsonl"
                              " next to the database)")
     args = parser.parse_args()
+
+    # Attempt logs (TF-103: log each attempt with the user ID) go to
+    # stderr; stdout stays reserved for the outcome JSON.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr)
 
     db_path = args.db or os.environ.get("TASKFLOW_DB_PATH", "taskflow.db")
     outbox = args.outbox or str(

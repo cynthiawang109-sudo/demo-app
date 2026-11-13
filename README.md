@@ -53,5 +53,6 @@ Sends are idempotent per (user, week) — the ledger table
 `digest_sends` (that pair is its primary key) plus an idempotency key
 the sender dedupes on — every attempt is recorded and logged with the
 user ID (never an email address), and after 5 attempts the row is
-dead-lettered and left alone until a human resets it. The demo sender
+dead-lettered and left alone until a human resets it. (Diagnosis and
+reset steps: `taskflow-docs/incident-runbook.md`.) The demo sender
 appends to `digest-outbox.jsonl` next to the database.
