@@ -9,6 +9,7 @@ import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -140,6 +141,27 @@ def store_error_handler(request: Request, exc: sqlite3.Error) -> JSONResponse:
     # never FastAPI's default 500 body. /health is exempt by design: it
     # catches its own ping failures and reports the degraded shape.
     return _error(503, "store_unavailable", "task store is unavailable")
+
+
+@app.exception_handler(RequestValidationError)
+def validation_error_handler(request: Request,
+                             exc: RequestValidationError) -> JSONResponse:
+    # Framework validation failures (a non-integer limit, a missing
+    # title, malformed JSON) must also answer in the contract
+    # envelope with 422 (TF-105) - never FastAPI's default "detail"
+    # shape. The message names the field and the problem; it never
+    # echoes the submitted value.
+    errors = exc.errors()
+    if errors:
+        first = errors[0]
+        field = ".".join(
+            str(part) for part in first["loc"]
+            if part not in ("query", "body", "path")
+        )
+        message = f"{field}: {first['msg']}" if field else first["msg"]
+    else:
+        message = "request validation failed"
+    return _error(422, "validation_error", message)
 
 
 class TaskIn(BaseModel):
