@@ -93,13 +93,13 @@ class TaskStore:
     def ping(self) -> None:
         """Raise if the store cannot serve reads.
 
-        Probes the actual tasks table, not just the connection: a
-        "SELECT 1" would succeed against a corrupt database file whose
-        task data is unreadable, reporting healthy while every task
-        request fails.
+        Probes the tasks and comments tables, not just the connection:
+        a "SELECT 1" would succeed even when required tables are missing
+        or unreadable, reporting healthy while requests fail.
         """
         with self._connect() as conn:
             conn.execute("SELECT id FROM tasks LIMIT 1")
+            conn.execute("SELECT id FROM comments LIMIT 1")
 
     def list_page(
         self, cursor: int, limit: int, status: str | None = None

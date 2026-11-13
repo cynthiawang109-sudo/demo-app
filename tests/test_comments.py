@@ -1,5 +1,6 @@
 """TF-106: append-only revisions and the TaskFlow error/paging contracts."""
 
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
@@ -178,6 +179,41 @@ def test_down_store(route, tmp_path, monkeypatch):
         response = client.get(url if route == "list" else f"{url}/1")
     assert_error(response, 503, "store_unavailable")
     assert response.json()["error"]["message"] == "task store is unavailable"
+
+
+def test_health_degraded_until_comments_schema_is_migrated(tmp_path, monkeypatch):
+    legacy = main.TaskStore(str(tmp_path / "legacy.db"))
+    # Only the pre-TF-106 tasks schema, independent of the current migration.
+    with sqlite3.connect(legacy.db_path) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tasks ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "title TEXT NOT NULL, status TEXT NOT NULL)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_status_id ON tasks (status, id)"
+        )
+    monkeypatch.setattr(main, "store", legacy)
+    task = legacy.create("fictional task before upgrade", "todo")
+
+    response = client.get("/health")
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "degraded", "checks": {"task_store": "down"},
+    }
+
+    main.migrate(legacy.db_path)
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    response = client.post(
+        f"/v1/tasks/{task['id']}/comments", json={"body": "after upgrade"}
+    )
+    assert response.status_code == 201
+    assert response.json() == {
+        "id": 1, "task_id": task["id"], "body": "after upgrade",
+        "supersedes_id": None,
+    }
 
 
 def test_migration_preserves_comments_and_creates_paging_index(fresh_store):
