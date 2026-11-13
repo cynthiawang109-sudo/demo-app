@@ -71,14 +71,54 @@ def test_inbound_request_id_is_propagated(capsys):
     assert record["request_id"] == request_id
 
 
-@pytest.mark.parametrize("path", ["/missing-route", "/v1/tasks/999999"])
-def test_not_found_is_logged(capsys, path):
+@pytest.mark.parametrize("path,logged_path", [
+    ("/missing-route", "<unmatched>"),
+    ("/v1/tasks/999999", "/v1/tasks/{task_id}"),
+])
+def test_not_found_is_logged(capsys, path, logged_path):
     response = client.get(path)
     record, = access_records(capsys)
     assert response.status_code == record["status"] == 404
     assert record["level"] == "info"
-    assert record["path"] == path
+    assert record["path"] == logged_path
     assert record["request_id"] == response.headers["X-Request-ID"]
+
+
+def test_malformed_path_parameter_logs_template_without_private_content(capsys):
+    private_content = "fictional-person@example.invalid"
+    response = client.get(f"/v1/tasks/{private_content}")
+    output = capsys.readouterr().out
+    record, = [json.loads(line) for line in output.splitlines()]
+    assert response.status_code == record["status"] == 422
+    assert record["path"] == "/v1/tasks/{task_id}"
+    assert private_content not in output
+
+
+def test_unknown_path_logs_placeholder_without_private_content(capsys):
+    private_content = "fictional-person@example.invalid"
+    response = client.get(f"/unknown/{private_content}")
+    output = capsys.readouterr().out
+    record, = [json.loads(line) for line in output.splitlines()]
+    assert response.status_code == record["status"] == 404
+    assert record["path"] == "<unmatched>"
+    assert private_content not in output
+
+
+def test_unhandled_exception_response_id_matches_access_log(
+    fresh_store, monkeypatch, capsys,
+):
+    def fail(task_id):
+        raise RuntimeError("fictional store failure")
+
+    monkeypatch.setattr(fresh_store, "get", fail)
+    with TestClient(main.app, raise_server_exceptions=False) as error_client:
+        response = error_client.get("/v1/tasks/1")
+    record, = access_records(capsys)
+    assert response.status_code == record["status"] == 500
+    assert response.headers["X-Request-ID"] == record["request_id"]
+    assert record["request_id"]
+    assert record["level"] == "error"
+    assert record["path"] == "/v1/tasks/{task_id}"
 
 
 @pytest.mark.parametrize("path", ["/health", "/v1/tasks"])

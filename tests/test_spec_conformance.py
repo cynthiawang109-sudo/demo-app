@@ -92,7 +92,7 @@ def validate(value, schema, spec, location="$Root"):
 
 def test_route_parity(spec):
     published = set(operations(spec))
-    implemented = set(operations(main.app.openapi()))
+    implemented = set(operations(main.api.openapi()))
     assert not published - implemented, f"Unimplemented spec routes: {published - implemented}"
     assert not implemented - published, f"Undocumented app routes: {implemented - published}"
 
