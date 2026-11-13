@@ -18,6 +18,22 @@ jobs:
       - name: Run tests
         run: pytest -q
 
+  spec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Download published spec
+        run: curl --fail --show-error --location https://raw.githubusercontent.com/cynthiawang109-sudo/taskflow-api-docs/main/openapi.yaml --output "$GITHUB_WORKSPACE/openapi.yaml"
+      - name: Check spec conformance
+        env:
+          TASKFLOW_SPEC_PATH: ${{ github.workspace }}/openapi.yaml
+        run: pytest tests/test_spec_conformance.py
+
   lint:
     runs-on: ubuntu-latest
     steps:
