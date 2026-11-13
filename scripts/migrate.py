@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from main import migrate  # noqa: E402
+from main import migrate
 
 
 def default_db_path() -> str:

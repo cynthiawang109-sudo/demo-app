@@ -23,8 +23,8 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import main as app_main  # noqa: E402
-from main import TaskStore  # noqa: E402
+import main as app_main
+from main import TaskStore
 
 STATUSES = ("todo", "doing", "done")
 FILTERED_SQL = (

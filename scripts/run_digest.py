@@ -1,8 +1,8 @@
 """Run the weekly digest job once (worker demo entry point).
 
-Usage (from the demo-app root, after scripts\migrate.py):
+Usage (from the demo-app root, after scripts\\migrate.py):
 
-    .venv\Scripts\python scripts\run_digest.py --user demo-user --week 2026-W46
+    .venv\\Scripts\\python scripts\run_digest.py --user demo-user --week 2026-W46
 
 Deliveries go through the demo OutboxSender, which dedupes on the
 idempotency key, so re-running this command for the same user and
@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from digest import OutboxSender, run_digest  # noqa: E402
+from digest import OutboxSender, run_digest
 
 
 def main() -> None:

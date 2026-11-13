@@ -178,7 +178,7 @@ def health():
     # beyond the check names.
     try:
         store.ping()
-    except Exception:
+    except Exception:  # noqa: BLE001 - any ping failure means degraded
         return JSONResponse(
             status_code=503,
             content={"status": "degraded", "checks": {"task_store": "down"}},

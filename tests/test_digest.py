@@ -15,7 +15,8 @@ import pytest
 import main
 from digest import OutboxSender, compose_digest, run_digest
 
-NO_SLEEP = lambda _: None  # noqa: E731 - tests never wait on backoff
+def NO_SLEEP(_seconds):
+    """Sleeper for tests: never actually wait on backoff."""
 
 
 class FakeSender:
@@ -204,7 +205,7 @@ def test_cli_logs_attempts_on_stderr(tmp_path):
     proc = subprocess.run(
         [sys.executable, "scripts/run_digest.py",
          "--user", "user-1", "--week", "2026-W46"],
-        cwd=root, env=env, capture_output=True, text=True)
+        check=False, cwd=root, env=env, capture_output=True, text=True)
     assert proc.returncode == 0
     # The outcome stays machine-readable on stdout...
     assert json.loads(proc.stdout)["outcome"] == "sent"

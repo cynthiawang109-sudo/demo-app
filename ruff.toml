@@ -1,0 +1,16 @@
+# Ruff configuration for demo-app.
+#
+# The release checklist requires lint evidence in CI; this file pins
+# the rule set in the repo so local and CI runs check the same thing.
+# target-version is py310: the developer machine runs 3.10 (CI runs
+# 3.12), so suggestions requiring 3.11+ (e.g. datetime.UTC) stay off.
+target-version = "py310"
+
+[lint]
+select = [
+    "E4", "E7", "E9", "F",  # pycodestyle errors + pyflakes (ruff defaults)
+    "W605",     # invalid escape sequences
+    "BLE001",   # blind except (the two intentional sites carry noqa notes)
+    "PLW1510",  # subprocess.run without an explicit check argument
+    "RUF100",   # unused noqa directives
+]

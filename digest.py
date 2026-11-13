@@ -134,7 +134,7 @@ def run_digest(db_path: str, user_id: str, week: str, sender,
             try:
                 sender(user_id=user_id, week=week, body=body,
                        idempotency_key=idempotency_key)
-            except Exception as exc:  # failure is data, not silence
+            except Exception as exc:  # noqa: BLE001 - sender failure is data, not silence
                 # Store and log only the error code (exception class
                 # name) — never the message, which can carry PII.
                 error_code = type(exc).__name__
