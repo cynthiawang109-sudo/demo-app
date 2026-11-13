@@ -29,7 +29,7 @@ STATUSES = ("todo", "doing", "done")
 
 
 def migrate(db_path: str) -> None:
-    """Apply the schema (table + indexes) to the database at db_path.
+    """Apply the schema (tables + indexes) to the database at db_path.
 
     Idempotent, and deliberately NOT done lazily by the store:
     taskflow-docs/deployment.md requires migrations to run *before*
@@ -42,6 +42,9 @@ def migrate(db_path: str) -> None:
     try:
         conn.execute(_SCHEMA)
         conn.execute(_INDEX)
+        from digest import DIGEST_SCHEMA  # the worker's ledger table
+
+        conn.execute(DIGEST_SCHEMA)
         conn.commit()
     finally:
         conn.close()
