@@ -19,6 +19,9 @@ client = TestClient(main.app)
 @pytest.fixture(autouse=True)
 def fresh_store(tmp_path, monkeypatch):
     store = main.TaskStore(str(tmp_path / "tasks.db"))
+    # Deployment order: migrations run before the service starts
+    # (taskflow-docs/deployment.md), so the fixture migrates first.
+    main.migrate(store.db_path)
     monkeypatch.setattr(main, "store", store)
     return store
 
@@ -145,14 +148,34 @@ def test_list_tasks_clamps_out_of_range_pagination():
 
 def test_status_index_exists(fresh_store):
     # The (status, id) index is what keeps a filtered page from walking
-    # the whole table; pin its presence so it cannot be dropped quietly.
-    fresh_store.ping()  # any store op ensures the schema
+    # the whole table; the fixture's migration must have created it.
     with fresh_store._connect() as conn:
         names = {
             row["name"]
             for row in conn.execute("PRAGMA index_list(tasks)").fetchall()
         }
     assert "idx_tasks_status_id" in names
+
+
+def test_migration_is_idempotent_on_a_populated_database(fresh_store):
+    # The pre-start migration runs on every deploy: running it again
+    # against live data must change nothing.
+    created = fresh_store.create("keep me", "doing")
+    main.migrate(fresh_store.db_path)
+    main.migrate(fresh_store.db_path)
+    assert fresh_store.get(created["id"])["title"] == "keep me"
+
+
+def test_health_degraded_when_database_is_not_migrated(tmp_path, monkeypatch):
+    # The deployment failure this design exists to surface: the file
+    # is there and openable, but migrate.py never ran, so there is no
+    # tasks table to probe. Degraded, per the health contract - the
+    # store must not silently migrate mid-request.
+    unmigrated = main.TaskStore(str(tmp_path / "unmigrated.db"))
+    monkeypatch.setattr(main, "store", unmigrated)
+    r = client.get("/health")
+    assert r.status_code == 503
+    assert r.json() == {"status": "degraded", "checks": {"task_store": "down"}}
 
 
 def test_get_missing_task_uses_contract_error_shape():

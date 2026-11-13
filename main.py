@@ -28,9 +28,23 @@ _INDEX = "CREATE INDEX IF NOT EXISTS idx_tasks_status_id ON tasks (status, id)"
 STATUSES = ("todo", "doing", "done")
 
 
-def _ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.execute(_SCHEMA)
-    conn.execute(_INDEX)
+def migrate(db_path: str) -> None:
+    """Apply the schema (table + indexes) to the database at db_path.
+
+    Idempotent, and deliberately NOT done lazily by the store:
+    taskflow-docs/deployment.md requires migrations to run *before*
+    the service starts serving traffic, so `scripts/migrate.py` is a
+    pre-start step. A store pointed at an unmigrated database fails
+    its operations - /health reports degraded - instead of silently
+    migrating mid-request.
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(_SCHEMA)
+        conn.execute(_INDEX)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 class TaskStore:
@@ -61,7 +75,6 @@ class TaskStore:
         request fails.
         """
         with self._connect() as conn:
-            _ensure_schema(conn)
             conn.execute("SELECT id FROM tasks LIMIT 1")
 
     def list_page(
@@ -71,7 +84,6 @@ class TaskStore:
         # status filter (a board column), the (status, id) index serves
         # the same cursor walk inside one column.
         with self._connect() as conn:
-            _ensure_schema(conn)
             if status is None:
                 rows = conn.execute(
                     "SELECT id, title, status FROM tasks "
@@ -90,7 +102,6 @@ class TaskStore:
 
     def create(self, title: str, status: str) -> dict:
         with self._connect() as conn:
-            _ensure_schema(conn)
             cur = conn.execute(
                 "INSERT INTO tasks (title, status) VALUES (?, ?)", (title, status)
             )
@@ -99,7 +110,6 @@ class TaskStore:
 
     def get(self, task_id: int) -> dict | None:
         with self._connect() as conn:
-            _ensure_schema(conn)
             row = conn.execute(
                 "SELECT id, title, status FROM tasks WHERE id = ?", (task_id,)
             ).fetchone()
@@ -161,9 +171,9 @@ def list_tasks(
         return _error(422, "invalid_status", "status must be todo, doing or done")
     # Clamp instead of erroring: pagination inputs come from clients
     # that page in a loop, and an out-of-range value must never wedge
-    # one (recorded pre-existing issue: no bounds were enforced at all,
-    # so limit=0 looped a client forever and a negative cursor
-    # silently restarted the walk).
+    # one. (Recorded pre-existing issue: only the limit's upper bound
+    # was enforced - limit=0 looped a paging client forever and a
+    # negative cursor silently restarted the walk.)
     cursor = max(cursor, 0)
     limit = min(max(limit, 1), 200)
     items, next_cursor = store.list_page(cursor, limit, status)

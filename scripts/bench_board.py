@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import main as app_main  # noqa: E402
 from main import TaskStore  # noqa: E402
 
 STATUSES = ("todo", "doing", "done")
@@ -33,12 +34,20 @@ FILTERED_SQL = (
 
 
 def seed(store: TaskStore, rows: int) -> None:
+    # Prepare the schema the way the checkout under test prescribes:
+    # via its migrate() when it has one (table + index), else just the
+    # table - so a before/after comparison stays truthful on both.
+    migrate = getattr(app_main, "migrate", None)
+    if migrate is not None:
+        migrate(store.db_path)
+    else:
+        with store._connect() as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS tasks ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "title TEXT NOT NULL, status TEXT NOT NULL)"
+            )
     with store._connect() as conn:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS tasks ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "title TEXT NOT NULL, status TEXT NOT NULL)"
-        )
         conn.executemany(
             "INSERT INTO tasks (title, status) VALUES (?, ?)",
             [(f"Task {i}", STATUSES[i % 3]) for i in range(rows)],
