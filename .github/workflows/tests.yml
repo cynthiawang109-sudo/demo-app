@@ -43,3 +43,14 @@ jobs:
         run: python -m compileall -q main.py digest.py scripts tests
       - name: Import smoke test
         run: python -c "import main; import digest"
+      - name: Build the container image
+        run: docker build -t taskflow-demo-app .
+      - name: Smoke-test the container
+        run: |
+          docker run -d --name demo -p 8000:8000 taskflow-demo-app
+          for i in $(seq 1 15); do
+            if curl -fs http://localhost:8000/health; then exit 0; fi
+            sleep 1
+          done
+          docker logs demo
+          exit 1

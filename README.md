@@ -56,3 +56,12 @@ user ID (never an email address), and after 5 attempts the row is
 dead-lettered and left alone until a human resets it. (Diagnosis and
 reset steps: `taskflow-docs/incident-runbook.md`.) The demo sender
 appends to `digest-outbox.jsonl` next to the database.
+## Container
+
+A `Dockerfile` packages the service (deployment.md: merge to `main`
+triggers tests, lint, and a container build in CI). The entrypoint
+runs the migration before starting the server, per the same
+contract; the database lives on the `/data` volume:
+
+    docker build -t taskflow-demo-app .
+    docker run -p 8000:8000 -v taskflow-data:/data taskflow-demo-app
