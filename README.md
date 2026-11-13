@@ -41,3 +41,17 @@ unmigrated database — that is how a forgotten migration shows up.
 `scripts/bench_board.py` seeds a throwaway database and measures the
 board workload (paging all tasks vs. paging one column) on any checkout,
 for before/after comparisons.
+
+## Weekly digest (worker slice)
+
+`digest.py` is the demo slice of the worker's weekly digest job
+(TF-103). Run it after `scripts/migrate.py`:
+
+    .venv\Scripts\python scripts\run_digest.py --user demo-user --week 2026-W46
+
+Sends are idempotent per (user, week) — the ledger table
+`digest_sends` (that pair is its primary key) plus an idempotency key
+the sender dedupes on — every attempt is recorded and logged with the
+user ID (never an email address), and after 5 attempts the row is
+dead-lettered and left alone until a human resets it. The demo sender
+appends to `digest-outbox.jsonl` next to the database.
