@@ -1,0 +1,4 @@
+# Every path is owned by the maintainer. Ownership here drives
+# review requests and the code-owner gate in branch protection;
+# it does not imply a second reviewer exists.
+* @cynthiawang109-sudo
