@@ -4,16 +4,64 @@ Implements the slice of the TaskFlow API contract that the workspace demos
 exercise: the /health contract and a minimal tasks resource backed by a
 local SQLite file, following taskflow-api-docs/api-conventions.md.
 """
+import json
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
+from uuid import uuid4
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-app = FastAPI(title="TaskFlow demo api-service", version="1.0.0")
+
+class AccessLogMiddleware:
+    """TF-109: request IDs and one JSON access record, without buffering."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # taskflow-docs/observability.md ("Logs"): propagate the edge ID;
+        # TF-109 mints one here when the demo has no upstream edge.
+        request_id = Headers(scope=scope).get("x-request-id", str(uuid4()))
+        started = perf_counter()
+        status = 500
+
+        async def send_with_request_id(message: Message) -> None:
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+                MutableHeaders(scope=message)["X-Request-ID"] = request_id
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_with_request_id)
+        finally:
+            # observability.md: PII in logs is severity 1. Explicit fields
+            # only: no bodies, query string, or other headers. The demo
+            # has no authenticated user context, so user_id is omitted.
+            print(json.dumps({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "service": "demo-app",
+                "level": "error" if 500 <= status < 600 else "info",
+                "request_id": request_id,
+                "method": scope["method"],
+                "path": getattr(scope.get("route"), "path", "<unmatched>"),
+                "status": status,
+                "duration_ms": (perf_counter() - started) * 1000,
+            }), flush=True)
+
+api = FastAPI(title="TaskFlow demo api-service", version="1.0.0")
 
 _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS tasks ("
@@ -208,7 +256,7 @@ def _error(status_code: int, code: str, message: str) -> JSONResponse:
     )
 
 
-@app.exception_handler(sqlite3.Error)
+@api.exception_handler(sqlite3.Error)
 def store_error_handler(request: Request, exc: sqlite3.Error) -> JSONResponse:
     # A down store must still answer in the contract error envelope,
     # never FastAPI's default 500 body. /health is exempt by design: it
@@ -216,7 +264,7 @@ def store_error_handler(request: Request, exc: sqlite3.Error) -> JSONResponse:
     return _error(503, "store_unavailable", "task store is unavailable")
 
 
-@app.exception_handler(RequestValidationError)
+@api.exception_handler(RequestValidationError)
 def validation_error_handler(request: Request,
                              exc: RequestValidationError) -> JSONResponse:
     # Framework validation failures (a non-integer limit, a missing
@@ -247,7 +295,7 @@ class CommentIn(BaseModel):
     supersedes_id: int | None = None
 
 
-@app.get("/health")
+@api.get("/health")
 def health():
     # Contract (taskflow-api-docs, "Health checks"): unauthenticated;
     # 200 + {"status": "ok"} when the service can serve traffic, 503 +
@@ -264,7 +312,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/v1/tasks")
+@api.get("/v1/tasks")
 def list_tasks(
     cursor: int = Query(0),
     limit: int = Query(50),
@@ -283,14 +331,14 @@ def list_tasks(
     return {"items": items, "next_cursor": next_cursor}
 
 
-@app.post("/v1/tasks", status_code=201)
+@api.post("/v1/tasks", status_code=201)
 def create_task(task: TaskIn):
     if task.status not in STATUSES:
         return _error(422, "invalid_status", "status must be todo, doing or done")
     return store.create(task.title, task.status)
 
 
-@app.get("/v1/tasks/{task_id}")
+@api.get("/v1/tasks/{task_id}")
 def get_task(task_id: int):
     item = store.get(task_id)
     if item is None:
@@ -298,7 +346,7 @@ def get_task(task_id: int):
     return item
 
 
-@app.post("/v1/tasks/{task_id}/comments", status_code=201)
+@api.post("/v1/tasks/{task_id}/comments", status_code=201)
 def create_comment(task_id: int, comment: CommentIn):
     if store.get(task_id) is None:
         return _error(404, "task_not_found", f"task {task_id} does not exist")
@@ -314,7 +362,7 @@ def create_comment(task_id: int, comment: CommentIn):
         return _error(409, "conflict", "comment revision is already superseded")
 
 
-@app.get("/v1/tasks/{task_id}/comments")
+@api.get("/v1/tasks/{task_id}/comments")
 def list_comments(
     task_id: int, cursor: int = Query(0), limit: int = Query(50)
 ):
@@ -328,7 +376,7 @@ def list_comments(
     return {"items": items, "next_cursor": next_cursor}
 
 
-@app.get("/v1/tasks/{task_id}/comments/{comment_id}")
+@api.get("/v1/tasks/{task_id}/comments/{comment_id}")
 def get_comment(task_id: int, comment_id: int):
     if store.get(task_id) is None:
         return _error(404, "task_not_found", f"task {task_id} does not exist")
@@ -336,3 +384,9 @@ def get_comment(task_id: int, comment_id: int):
     if item is None:
         return _error(404, "comment_not_found", "comment does not exist")
     return item
+
+
+# Wrap the complete FastAPI stack, including ServerErrorMiddleware, so even
+# unhandled 500 responses receive the same request ID as the access record.
+# Keep `api` available for framework operations such as api.openapi().
+app = AccessLogMiddleware(api)
