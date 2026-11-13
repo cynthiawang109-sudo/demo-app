@@ -20,6 +20,32 @@ _SCHEMA = (
     "title TEXT NOT NULL, status TEXT NOT NULL)"
 )
 
+# Supports the board's per-column reads (TF-102): status-filtered cursor
+# pagination walks this index instead of filtering the primary-key scan
+# row by row. Expand-only, like every schema change here.
+_INDEX = "CREATE INDEX IF NOT EXISTS idx_tasks_status_id ON tasks (status, id)"
+
+STATUSES = ("todo", "doing", "done")
+
+
+def migrate(db_path: str) -> None:
+    """Apply the schema (table + indexes) to the database at db_path.
+
+    Idempotent, and deliberately NOT done lazily by the store:
+    taskflow-docs/deployment.md requires migrations to run *before*
+    the service starts serving traffic, so `scripts/migrate.py` is a
+    pre-start step. A store pointed at an unmigrated database fails
+    its operations - /health reports degraded - instead of silently
+    migrating mid-request.
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(_SCHEMA)
+        conn.execute(_INDEX)
+        conn.commit()
+    finally:
+        conn.close()
+
 
 class TaskStore:
     """SQLite-backed task storage.
@@ -49,25 +75,33 @@ class TaskStore:
         request fails.
         """
         with self._connect() as conn:
-            conn.execute(_SCHEMA)
             conn.execute("SELECT id FROM tasks LIMIT 1")
 
-    def list_page(self, cursor: int, limit: int) -> tuple[list[dict], int | None]:
-        # Fetch one extra row to know whether another page exists.
+    def list_page(
+        self, cursor: int, limit: int, status: str | None = None
+    ) -> tuple[list[dict], int | None]:
+        # Fetch one extra row to know whether another page exists. With a
+        # status filter (a board column), the (status, id) index serves
+        # the same cursor walk inside one column.
         with self._connect() as conn:
-            conn.execute(_SCHEMA)
-            rows = conn.execute(
-                "SELECT id, title, status FROM tasks "
-                "WHERE id > ? ORDER BY id LIMIT ?",
-                (cursor, limit + 1),
-            ).fetchall()
+            if status is None:
+                rows = conn.execute(
+                    "SELECT id, title, status FROM tasks "
+                    "WHERE id > ? ORDER BY id LIMIT ?",
+                    (cursor, limit + 1),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, title, status FROM tasks "
+                    "WHERE status = ? AND id > ? ORDER BY id LIMIT ?",
+                    (status, cursor, limit + 1),
+                ).fetchall()
         items = [dict(r) for r in rows[:limit]]
         next_cursor = items[-1]["id"] if len(rows) > limit else None
         return items, next_cursor
 
     def create(self, title: str, status: str) -> dict:
         with self._connect() as conn:
-            conn.execute(_SCHEMA)
             cur = conn.execute(
                 "INSERT INTO tasks (title, status) VALUES (?, ?)", (title, status)
             )
@@ -76,7 +110,6 @@ class TaskStore:
 
     def get(self, task_id: int) -> dict | None:
         with self._connect() as conn:
-            conn.execute(_SCHEMA)
             row = conn.execute(
                 "SELECT id, title, status FROM tasks WHERE id = ?", (task_id,)
             ).fetchone()
@@ -129,14 +162,27 @@ def health():
 
 
 @app.get("/v1/tasks")
-def list_tasks(cursor: int = Query(0), limit: int = Query(50, le=200)):
-    items, next_cursor = store.list_page(cursor, limit)
+def list_tasks(
+    cursor: int = Query(0),
+    limit: int = Query(50),
+    status: str | None = Query(None),
+):
+    if status is not None and status not in STATUSES:
+        return _error(422, "invalid_status", "status must be todo, doing or done")
+    # Clamp instead of erroring: pagination inputs come from clients
+    # that page in a loop, and an out-of-range value must never wedge
+    # one. (Recorded pre-existing issue: only the limit's upper bound
+    # was enforced - limit=0 looped a paging client forever and a
+    # negative cursor silently restarted the walk.)
+    cursor = max(cursor, 0)
+    limit = min(max(limit, 1), 200)
+    items, next_cursor = store.list_page(cursor, limit, status)
     return {"items": items, "next_cursor": next_cursor}
 
 
 @app.post("/v1/tasks", status_code=201)
 def create_task(task: TaskIn):
-    if task.status not in ("todo", "doing", "done"):
+    if task.status not in STATUSES:
         return _error(422, "invalid_status", "status must be todo, doing or done")
     return store.create(task.title, task.status)
 
