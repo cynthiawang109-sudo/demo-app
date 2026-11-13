@@ -99,6 +99,62 @@ def test_list_tasks_paginates_with_cursor():
     assert page2["next_cursor"] is None
 
 
+def test_list_tasks_filters_by_status_and_pages():
+    # TF-102: a board column must be pageable on its own, in id order,
+    # without downloading the other columns.
+    for title, status in (
+        ("a", "todo"),
+        ("b", "doing"),
+        ("c", "doing"),
+        ("d", "done"),
+        ("e", "doing"),
+    ):
+        client.post("/v1/tasks", json={"title": title, "status": status})
+    page1 = client.get(
+        "/v1/tasks", params={"status": "doing", "limit": 2}
+    ).json()
+    assert [t["title"] for t in page1["items"]] == ["b", "c"]
+    assert page1["next_cursor"] == page1["items"][-1]["id"]
+    page2 = client.get(
+        "/v1/tasks",
+        params={"status": "doing", "limit": 2, "cursor": page1["next_cursor"]},
+    ).json()
+    assert [t["title"] for t in page2["items"]] == ["e"]
+    assert page2["next_cursor"] is None
+
+
+def test_list_tasks_rejects_invalid_status_filter():
+    r = client.get("/v1/tasks", params={"status": "bogus"})
+    assert r.status_code == 422
+    assert r.json() == {
+        "error": {
+            "code": "invalid_status",
+            "message": "status must be todo, doing or done",
+        }
+    }
+
+
+def test_list_tasks_clamps_out_of_range_pagination():
+    client.post("/v1/tasks", json={"title": "only"})
+    r = client.get("/v1/tasks", params={"limit": 0, "cursor": -5})
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["items"]) == 1  # limit clamped up to 1
+    assert body["next_cursor"] is None
+
+
+def test_status_index_exists(fresh_store):
+    # The (status, id) index is what keeps a filtered page from walking
+    # the whole table; pin its presence so it cannot be dropped quietly.
+    fresh_store.ping()  # any store op ensures the schema
+    with fresh_store._connect() as conn:
+        names = {
+            row["name"]
+            for row in conn.execute("PRAGMA index_list(tasks)").fetchall()
+        }
+    assert "idx_tasks_status_id" in names
+
+
 def test_get_missing_task_uses_contract_error_shape():
     # Contract ("Errors" in api-conventions.md): a top-level "error"
     # object - NOT wrapped in FastAPI's "detail".

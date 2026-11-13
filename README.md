@@ -25,4 +25,9 @@ database cannot be reached.
 - `GET /health` → `{"status": "ok"}`
 - `POST /v1/tasks` with `{"title": "..."}` → creates a task
 - `GET /v1/tasks?cursor=0&limit=50` → cursor-paginated list
-- Interactive docs at `/docs`
+- `GET /v1/tasks?status=doing&cursor=0&limit=50` → one board column,
+  paginated on its own (TF-102; served by the `(status, id)` index)
+
+`scripts/bench_board.py` seeds a throwaway database and measures the
+board workload (paging all tasks vs. paging one column) on any checkout,
+for before/after comparisons.
