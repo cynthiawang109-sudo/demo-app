@@ -1,4 +1,4 @@
-name: tests
+name: ci
 
 on:
   push:
@@ -17,3 +17,29 @@ jobs:
         run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Run tests
         run: pytest -q
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Lint (rule set pinned in ruff.toml)
+        run: ruff check .
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Byte-compile all sources
+        run: python -m compileall -q main.py digest.py scripts tests
+      - name: Import smoke test
+        run: python -c "import main; import digest"
