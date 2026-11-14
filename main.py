@@ -169,7 +169,7 @@ class TaskStore:
                     (status, cursor, limit + 1),
                 ).fetchall()
         items = [dict(r) for r in rows[:limit]]
-        next_cursor = items[-1]["id"] if len(rows) > limit else None
+        next_cursor = items[-1]["id"] if items else cursor
         return items, next_cursor
 
     def create(self, title: str, status: str) -> dict:
