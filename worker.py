@@ -29,8 +29,23 @@ def _db_path(store_or_db):
     return getattr(store_or_db, "db_path", store_or_db)
 
 
-def enqueue(store_or_db, kind, payload, request_id=None, now=None) -> int:
-    """Queue a JSON object of scalar identifiers, never an email field."""
+def _validate_weekly_digest(payload):
+    if set(payload) != {"user_id", "week"}:
+        raise ValueError("weekly_digest requires exactly user_id and week")
+    user_id = payload["user_id"]
+    if not (type(user_id) is int or (
+        isinstance(user_id, str) and SAFE_USER_ID.fullmatch(user_id)
+    )):
+        raise ValueError("weekly_digest requires a safe user identifier")
+    week = payload["week"]
+    if not isinstance(week, str) or not re.fullmatch(r"[0-9]{4}-W[0-9]{2}", week):
+        raise ValueError("weekly_digest requires a week in YYYY-Www format")
+
+
+PAYLOAD_SCHEMAS = {"weekly_digest": _validate_weekly_digest}
+
+
+def _validate_payload(kind, payload):
     if not isinstance(payload, dict) or "email" in payload:
         raise ValueError("payload must be an object without an email key")
     if any(not isinstance(key, str) for key in payload) or any(
@@ -38,6 +53,17 @@ def enqueue(store_or_db, kind, payload, request_id=None, now=None) -> int:
         for value in payload.values()
     ):
         raise ValueError("payload must have string keys and JSON scalar values")
+    if any(isinstance(value, str) and "@" in value for value in payload.values()):
+        raise ValueError("payload values must not contain email addresses")
+    validator = PAYLOAD_SCHEMAS.get(kind)
+    if validator is None:
+        raise ValueError("unsupported job kind")
+    validator(payload)
+
+
+def enqueue(store_or_db, kind, payload, request_id=None, now=None) -> int:
+    """Queue a payload validated against its registered job schema."""
+    _validate_payload(kind, payload)
     encoded = json.dumps(payload, allow_nan=False)
     now = time.time() if now is None else now
     conn = sqlite3.connect(_db_path(store_or_db))
@@ -123,7 +149,9 @@ def process_due(db_path_or_store, handlers, now, clock=time.time) -> int:
                 )
             _log(job, "claimed")
             try:
-                handlers[job["kind"]](json.loads(job["payload"]))
+                payload = json.loads(job["payload"])
+                _validate_payload(job["kind"], payload)
+                handlers[job["kind"]](payload)
             except Exception as exc:  # noqa: BLE001 - handler failures become retry data
                 failure_time = clock()
                 attempts = job["attempts"] + 1
