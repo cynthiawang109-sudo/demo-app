@@ -56,7 +56,7 @@ class AccessLogMiddleware:
                 "level": "error" if 500 <= status < 600 else "info",
                 "request_id": request_id,
                 "method": scope["method"],
-                "path": getattr(scope.get("route"), "path", "<unmatched>"),
+                "path": scope["path"],
                 "status": status,
                 "duration_ms": (perf_counter() - started) * 1000,
             }), flush=True)
