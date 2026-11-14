@@ -33,7 +33,7 @@ from pathlib import Path
 
 log = logging.getLogger("taskflow.digest")
 
-MAX_ATTEMPTS = 5  # retry ceiling before dead-letter (system-overview.md)
+MAX_ATTEMPTS = 3  # retry ceiling before dead-letter (system-overview.md)
 BACKOFF_BASE_SECONDS = 0.5
 BACKOFF_CAP_SECONDS = 8.0
 
