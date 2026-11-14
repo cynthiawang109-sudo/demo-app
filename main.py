@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.datastructures import Headers, MutableHeaders
@@ -389,4 +390,7 @@ def get_comment(task_id: int, comment_id: int):
 # Wrap the complete FastAPI stack, including ServerErrorMiddleware, so even
 # unhandled 500 responses receive the same request ID as the access record.
 # Keep `api` available for framework operations such as api.openapi().
-app = AccessLogMiddleware(api)
+# Let published API docs call the public demo (fictional data only).
+app = AccessLogMiddleware(CORSMiddleware(
+    api, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+))

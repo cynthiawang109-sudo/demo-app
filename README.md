@@ -11,6 +11,13 @@ answers questions about.
 Part of [ai-workspace-kit](https://github.com/cynthiawang109-sudo/ai-workspace-kit).
 Fictional demo — tasks persist in a local SQLite file, no real data.
 
+## Live demo
+
+The app is deployed on Render's free tier (URL to be added after the first
+deploy). The free tier sleeps when idle, so the first request may take up to
+a minute. The SQLite database is ephemeral and resets on redeploy; demo
+data is disposable and fictional.
+
 ## Run
 
 ```bash
