@@ -342,14 +342,14 @@ def create_task(task: TaskIn):
 def get_task(task_id: int):
     item = store.get(task_id)
     if item is None:
-        return _error(404, "task_not_found", f"task {task_id} does not exist")
+        return _error(404, "task_not_found", f"task {task_id} not found")
     return item
 
 
 @api.post("/v1/tasks/{task_id}/comments", status_code=201)
 def create_comment(task_id: int, comment: CommentIn):
     if store.get(task_id) is None:
-        return _error(404, "task_not_found", f"task {task_id} does not exist")
+        return _error(404, "task_not_found", f"task {task_id} not found")
     # TF-106; taskflow-api-docs/api-conventions.md ("Errors"):
     # reject blank text in the contract envelope without echoing it.
     if not comment.body.strip():
@@ -367,7 +367,7 @@ def list_comments(
     task_id: int, cursor: int = Query(0), limit: int = Query(50)
 ):
     if store.get(task_id) is None:
-        return _error(404, "task_not_found", f"task {task_id} does not exist")
+        return _error(404, "task_not_found", f"task {task_id} not found")
     # taskflow-api-docs/api-conventions.md ("Pagination"): same cursor
     # walk and bounds as tasks; include the full append-only revision log.
     cursor = max(cursor, 0)
@@ -379,7 +379,7 @@ def list_comments(
 @api.get("/v1/tasks/{task_id}/comments/{comment_id}")
 def get_comment(task_id: int, comment_id: int):
     if store.get(task_id) is None:
-        return _error(404, "task_not_found", f"task {task_id} does not exist")
+        return _error(404, "task_not_found", f"task {task_id} not found")
     item = store.get_comment(task_id, comment_id)
     if item is None:
         return _error(404, "comment_not_found", "comment does not exist")
