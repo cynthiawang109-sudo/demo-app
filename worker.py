@@ -5,12 +5,16 @@ service: its exit code and summary line are its health signal.
 """
 
 import json
+import re
 import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import digest
+
+# Deliberately excludes email addresses and arbitrary payload text.
+SAFE_USER_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 JOBS_SCHEMA = (
     "CREATE TABLE IF NOT EXISTS jobs ("
@@ -53,7 +57,7 @@ def backoff_seconds(attempts):
     return min(2 ** attempts, 300)
 
 
-def recover_interrupted(db_path_or_store, now):
+def recover_interrupted(db_path_or_store, clock=time.time):
     """Recover running jobs only when no other worker process is active."""
     conn = sqlite3.connect(_db_path(db_path_or_store))
     try:
@@ -64,6 +68,7 @@ def recover_interrupted(db_path_or_store, now):
             ).fetchall()
             for job_id, previous_attempts in jobs:
                 attempts = previous_attempts + 1
+                now = clock()
                 conn.execute(
                     "UPDATE jobs SET status = ?, attempts = ?, last_error = ?, "
                     "next_attempt_at = ?, updated_at = ? WHERE id = ?",
@@ -89,12 +94,15 @@ def _log(job, event):
         payload = json.loads(job["payload"])
     except (ValueError, TypeError):
         payload = None
-    if isinstance(payload, dict) and type(payload.get("user_id")) is int:
-        record["user_id"] = payload["user_id"]
+    user_id = payload.get("user_id") if isinstance(payload, dict) else None
+    if type(user_id) is int or (
+        isinstance(user_id, str) and SAFE_USER_ID.fullmatch(user_id)
+    ):
+        record["user_id"] = user_id
     print(json.dumps(record), flush=True)
 
 
-def process_due(db_path_or_store, handlers, now) -> int:
+def process_due(db_path_or_store, handlers, now, clock=time.time) -> int:
     """Atomically claim oldest due jobs, dispatch outside the write transaction."""
     conn = sqlite3.connect(_db_path(db_path_or_store))
     conn.row_factory = sqlite3.Row
@@ -117,6 +125,7 @@ def process_due(db_path_or_store, handlers, now) -> int:
             try:
                 handlers[job["kind"]](json.loads(job["payload"]))
             except Exception as exc:  # noqa: BLE001 - handler failures become retry data
+                failure_time = clock()
                 attempts = job["attempts"] + 1
                 event = "dead" if attempts >= 5 else "retry"
                 with conn:
@@ -124,7 +133,8 @@ def process_due(db_path_or_store, handlers, now) -> int:
                         "UPDATE jobs SET status = ?, attempts = ?, last_error = ?, "
                         "next_attempt_at = ?, updated_at = ? WHERE id = ?",
                         ("dead" if event == "dead" else "queued", attempts,
-                         type(exc).__name__, now + backoff_seconds(attempts), now, job["id"]),
+                         type(exc).__name__, failure_time + backoff_seconds(attempts),
+                         failure_time, job["id"]),
                     )
             else:
                 event = "done"

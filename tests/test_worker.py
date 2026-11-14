@@ -80,14 +80,14 @@ def test_five_failures_back_off_then_stay_dead(store, capsys):
     job_id = worker.enqueue(store, "test", {}, now=10)
     now = 10
     for attempt in range(1, 6):
-        assert worker.process_due(store, {"test": fail}, now) == 1
+        assert worker.process_due(store, {"test": fail}, now, clock=lambda: now) == 1
         row = job(store, job_id)
         assert row["attempts"] == attempt
         assert row["last_error"] == "RuntimeError"
         assert row["status"] == ("dead" if attempt == 5 else "queued")
         assert row["next_attempt_at"] == now + min(2 ** attempt, 300)
         assert row["updated_at"] == now
-        assert worker.process_due(store, {"test": fail}, now) == 0
+        assert worker.process_due(store, {"test": fail}, now, clock=lambda: now) == 0
         now = row["next_attempt_at"]
     assert worker.process_due(store, {"test": fail}, now + 1000) == 0
     output = capsys.readouterr().out
@@ -164,7 +164,7 @@ def test_interrupted_job_recovers_and_completes(store, use_store):
     with store._connect() as conn:
         conn.execute("UPDATE jobs SET status = 'running' WHERE id = ?", (job_id,))
     target = store if use_store else store.db_path
-    assert worker.recover_interrupted(target, 10) == 1
+    assert worker.recover_interrupted(target, clock=lambda: 10) == 1
     row = job(store, job_id)
     assert (row["status"], row["attempts"], row["last_error"]) == (
         "queued", 1, "InterruptedError",
@@ -172,7 +172,7 @@ def test_interrupted_job_recovers_and_completes(store, use_store):
     assert row["next_attempt_at"] == 12
     assert row["updated_at"] == 10
     assert job(store, untouched)["attempts"] == 0
-    assert worker.recover_interrupted(target, 11) == 0
+    assert worker.recover_interrupted(target, clock=lambda: 11) == 0
     seen = []
     assert worker.process_due(store, {"test": seen.append}, 11) == 0
     assert worker.process_due(store, {"test": seen.append}, 12) == 1
@@ -187,7 +187,7 @@ def test_interrupted_fifth_attempt_is_dead_lettered(store):
         conn.execute(
             "UPDATE jobs SET status = 'running', attempts = 4 WHERE id = ?", (job_id,),
         )
-    assert worker.recover_interrupted(store, 10) == 1
+    assert worker.recover_interrupted(store, clock=lambda: 10) == 1
     row = job(store, job_id)
     assert (row["status"], row["attempts"], row["last_error"]) == (
         "dead", 5, "InterruptedError",
@@ -197,7 +197,10 @@ def test_interrupted_fifth_attempt_is_dead_lettered(store):
     assert worker.process_due(store, {}, 1000) == 0
 
 
-@pytest.mark.parametrize("user_id", [42, None, "private-user", True])
+@pytest.mark.parametrize("user_id", [
+    42, None, "demo-user", "user-1", "User_2", "a" * 64, True,
+    "fictional@example.invalid", "", "a" * 65, "private user", "user\n",
+])
 def test_weekly_digest_lifecycle_user_context(store, capsys, user_id):
     def fail(payload):
         raise RuntimeError("private failure")
@@ -208,7 +211,7 @@ def test_weekly_digest_lifecycle_user_context(store, capsys, user_id):
     worker.enqueue(store, "weekly_digest", payload, now=0)
     now = 0
     for attempt in range(1, 6):
-        worker.process_due(store, {"weekly_digest": fail}, now)
+        worker.process_due(store, {"weekly_digest": fail}, now, clock=lambda: now)
         now += worker.backoff_seconds(attempt)
     worker.enqueue(store, "weekly_digest", payload, now=now)
     worker.process_due(store, {"weekly_digest": lambda payload: None}, now)
@@ -216,12 +219,13 @@ def test_weekly_digest_lifecycle_user_context(store, capsys, user_id):
     records = [json.loads(line) for line in output.splitlines()]
     assert {r["event"] for r in records} == {"claimed", "done", "retry", "dead"}
     for record in records:
-        if type(user_id) is int:
+        if type(user_id) is int or user_id in ("demo-user", "user-1", "User_2", "a" * 64):
             assert record["user_id"] == user_id
         else:
             assert "user_id" not in record
         assert "week" not in record
     assert "private" not in output
+    assert "fictional@example.invalid" not in output
 
 
 def test_cli_recovers_interrupted_jobs_at_startup(store):
@@ -238,3 +242,33 @@ def test_cli_recovers_interrupted_jobs_at_startup(store):
     assert row["status"] == "queued"
     assert row["attempts"] == 1
     assert row["last_error"] == "InterruptedError"
+
+
+def test_slow_failure_schedules_from_failure_time_and_preserves_cutoff(store):
+    current_time = 10
+
+    def fail(payload):
+        nonlocal current_time
+        current_time = 30
+        raise RuntimeError("slow failure")
+
+    job_id = worker.enqueue(store, "test", {}, now=10)
+    future_id = worker.enqueue(store, "test", {}, now=20)
+    assert worker.process_due(store, {"test": fail}, 10, clock=lambda: current_time) == 1
+    row = job(store, job_id)
+    assert row["attempts"] == 1
+    assert row["next_attempt_at"] == 32
+    assert row["updated_at"] == 30
+    assert job(store, future_id)["attempts"] == 0
+    assert job(store, future_id)["status"] == "queued"
+
+
+def test_recovery_reads_clock_for_each_interrupted_job(store):
+    job_ids = [worker.enqueue(store, "test", {}, now=0) for _ in range(2)]
+    with store._connect() as conn:
+        conn.execute("UPDATE jobs SET status = 'running'")
+    times = iter([30, 40])
+    assert worker.recover_interrupted(store, clock=lambda: next(times)) == 2
+    rows = [job(store, job_id) for job_id in job_ids]
+    assert sorted(row["updated_at"] for row in rows) == [30, 40]
+    assert sorted(row["next_attempt_at"] for row in rows) == [32, 42]

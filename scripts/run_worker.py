@@ -18,7 +18,7 @@ def main() -> None:
     now = time.time()
     # This one-shot script is the only worker process, so running rows are
     # interrupted by construction. Recover only when no other worker is active.
-    recover_interrupted(db_path, now)
+    recover_interrupted(db_path)
     processed = process_due(db_path, default_handlers(db_path), now)
     print(json.dumps({"processed": processed}))
 
