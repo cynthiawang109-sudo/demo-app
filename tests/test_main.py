@@ -32,6 +32,29 @@ def test_health_ok():
     assert r.json() == {"status": "ok"}
 
 
+def test_public_docs_cors_preflight_is_logged(capsys):
+    r = client.options("/v1/tasks", headers={
+        "Origin": "https://docs.example.com",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "Content-Type",
+        "X-Request-ID": "docs-preflight",
+    })
+    assert r.status_code == 200
+    assert r.headers["access-control-allow-origin"] == "*"
+    assert "POST" in r.headers["access-control-allow-methods"]
+    assert r.headers["access-control-allow-headers"] == "Content-Type"
+    assert r.headers["x-request-id"] == "docs-preflight"
+    assert '"request_id": "docs-preflight"' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("path,status", [("/health", 200), ("/v1/tasks/999999", 404)])
+def test_public_docs_can_read_responses(path, status):
+    r = client.get(path, headers={"Origin": "https://docs.example.com"})
+    assert r.status_code == status
+    assert r.headers["access-control-allow-origin"] == "*"
+    assert "x-request-id" in r.headers
+
+
 def test_health_degraded_when_store_is_down(tmp_path, monkeypatch):
     # A store whose database file cannot be opened at all: the parent
     # directory does not exist, so the real ping() fails for real.
