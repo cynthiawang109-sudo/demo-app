@@ -306,10 +306,10 @@ def health():
         store.ping()
     except Exception:  # noqa: BLE001 - any ping failure means degraded
         return JSONResponse(
-            status_code=503,
+            status_code=200,
             content={"status": "degraded", "checks": {"task_store": "down"}},
         )
-    return {"status": "ok"}
+    return {"status": "ok", "version": api.version}
 
 
 @api.get("/v1/tasks")
