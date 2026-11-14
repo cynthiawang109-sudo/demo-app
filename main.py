@@ -147,7 +147,6 @@ class TaskStore:
         """
         with self._connect() as conn:
             conn.execute("SELECT id FROM tasks LIMIT 1")
-            conn.execute("SELECT id FROM comments LIMIT 1")
 
     def list_page(
         self, cursor: int, limit: int, status: str | None = None
