@@ -312,6 +312,10 @@ def health():
     return {"status": "ok"}
 
 
+def _clamp_pagination(cursor: int, limit: int) -> tuple[int, int]:
+    return max(cursor, 0), min(max(limit, 1), 200)
+
+
 @api.get("/v1/tasks")
 def list_tasks(
     cursor: int = Query(0),
@@ -325,8 +329,7 @@ def list_tasks(
     # one. (Recorded pre-existing issue: only the limit's upper bound
     # was enforced - limit=0 looped a paging client forever and a
     # negative cursor silently restarted the walk.)
-    cursor = max(cursor, 0)
-    limit = min(max(limit, 1), 200)
+    cursor, limit = _clamp_pagination(cursor, limit)
     items, next_cursor = store.list_page(cursor, limit, status)
     return {"items": items, "next_cursor": next_cursor}
 
