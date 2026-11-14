@@ -32,6 +32,40 @@ def test_health_ok():
     assert r.json() == {"status": "ok"}
 
 
+@pytest.mark.parametrize("store_down", [False, True])
+def test_health_body_tracks_store_availability(fresh_store, monkeypatch, store_down):
+    def ping():
+        if store_down:
+            raise OSError("store unavailable")
+
+    monkeypatch.setattr(fresh_store, "ping", ping)
+    response = client.get("/health")
+    assert response.status_code == (503 if store_down else 200)
+    assert response.json() == (
+        {"status": "degraded", "checks": {"task_store": "down"}}
+        if store_down else {"status": "ok"}
+    )
+
+
+@pytest.mark.parametrize("limit, expected_count", [(201, 200), (999, 200), (0, 1), (-10, 1)])
+def test_list_tasks_clamps_limit_with_more_items(fresh_store, limit, expected_count):
+    tasks = [fresh_store.create(f"task {i}", "todo") for i in range(201)]
+    response = client.get("/v1/tasks", params={"limit": limit})
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": tasks[:expected_count],
+        "next_cursor": tasks[expected_count - 1]["id"],
+    }
+
+
+@pytest.mark.parametrize("count", [0, 1, 2])
+def test_list_tasks_final_page_has_null_cursor(fresh_store, count):
+    tasks = [fresh_store.create(f"task {i}", "todo") for i in range(count)]
+    response = client.get("/v1/tasks", params={"limit": 2})
+    assert response.status_code == 200
+    assert response.json() == {"items": tasks, "next_cursor": None}
+
+
 def test_health_degraded_when_store_is_down(tmp_path, monkeypatch):
     # A store whose database file cannot be opened at all: the parent
     # directory does not exist, so the real ping() fails for real.
