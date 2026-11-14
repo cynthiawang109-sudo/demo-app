@@ -26,6 +26,24 @@ def fresh_store(tmp_path, monkeypatch):
     return store
 
 
+def test_root_index_is_excluded_from_openapi():
+    r = client.get("/")
+    assert r.status_code == 200
+    assert r.json() == {
+        "service": "taskflow-demo-app",
+        "description": "Demo implementation of the TaskFlow api-service. Fictional data only.",
+        "links": {
+            "health": "/health",
+            "docs": "/docs",
+            "tasks": "/v1/tasks",
+            "openapi": "/openapi.json",
+        },
+    }
+    schema = client.get("/openapi.json")
+    assert schema.status_code == 200
+    assert "/" not in schema.json()["paths"]
+
+
 def test_health_ok():
     r = client.get("/health")
     assert r.status_code == 200

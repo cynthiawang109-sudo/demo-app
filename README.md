@@ -18,6 +18,8 @@ The app is deployed on Render's free tier: https://taskflow-demo-app.onrender.co
 a minute. The SQLite database is ephemeral and resets on redeploy; demo
 data is disposable and fictional.
 
+The bare domain root returns a small JSON index linking to `/health`, `/docs`, `/v1/tasks`, and `/openapi.json`.
+
 ## Run
 
 ```bash

@@ -296,6 +296,20 @@ class CommentIn(BaseModel):
     supersedes_id: int | None = None
 
 
+@api.get("/", include_in_schema=False)
+def root():
+    return {
+        "service": "taskflow-demo-app",
+        "description": "Demo implementation of the TaskFlow api-service. Fictional data only.",
+        "links": {
+            "health": "/health",
+            "docs": "/docs",
+            "tasks": "/v1/tasks",
+            "openapi": "/openapi.json",
+        },
+    }
+
+
 @api.get("/health")
 def health():
     # Contract (taskflow-api-docs, "Health checks"): unauthenticated;
