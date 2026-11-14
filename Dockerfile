@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py digest.py ./
+COPY main.py digest.py worker.py ./
 COPY scripts/ scripts/
 
 ENV TASKFLOW_DB_PATH=/data/taskflow.db
