@@ -115,6 +115,9 @@ def migrate(db_path: str) -> None:
         from digest import DIGEST_SCHEMA  # the worker's ledger table
 
         conn.execute(DIGEST_SCHEMA)
+        from worker import JOBS_SCHEMA
+
+        conn.execute(JOBS_SCHEMA)
         conn.commit()
     finally:
         conn.close()

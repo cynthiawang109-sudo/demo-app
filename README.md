@@ -66,6 +66,25 @@ user ID (never an email address), and after 5 attempts the row is
 dead-lettered and left alone until a human resets it. (Diagnosis and
 reset steps: `taskflow-docs/incident-runbook.md`.) The demo sender
 appends to `digest-outbox.jsonl` next to the database.
+## Worker
+
+`worker.py` queues scalar JSON payloads containing IDs (no `email` key) in
+the `jobs` table, created by the same pre-start migration. Enqueue with
+`worker.enqueue(db_path_or_store, "weekly_digest", {"user_id": "demo-user",
+"week": "2026-W46"})`, then drain all currently due jobs once:
+
+    .venv\Scripts\python scripts\run_worker.py
+
+The worker uses `TASKFLOW_DB_PATH` (default: `tasks.db` next to `main.py`).
+Failed jobs retry after `min(2 ** attempts, 300)` seconds; the fifth failed
+attempt dead-letters the job and later drains leave it alone. Lifecycle
+JSON logs carry the job's request ID without payload contents. The built-in
+`weekly_digest` handler reuses the digest send path, ledger, and outbox above,
+including its existing internal retries and terminal outcomes.
+
+The HTTP API and `/health` check are unchanged. The worker is a separate
+process; in the demo it shares the SQLite file with the API.
+
 ## Container
 
 A `Dockerfile` packages the service (deployment.md: merge to `main`
