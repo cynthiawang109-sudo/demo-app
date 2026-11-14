@@ -333,8 +333,6 @@ def list_tasks(
 
 @api.post("/v1/tasks", status_code=201)
 def create_task(task: TaskIn):
-    if task.status not in STATUSES:
-        return _error(422, "invalid_status", "status must be todo, doing or done")
     return store.create(task.title, task.status)
 
 
