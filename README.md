@@ -78,9 +78,23 @@ the `jobs` table, created by the same pre-start migration. Enqueue with
 The worker uses `TASKFLOW_DB_PATH` (default: `tasks.db` next to `main.py`).
 Failed jobs retry after `min(2 ** attempts, 300)` seconds; the fifth failed
 attempt dead-letters the job and later drains leave it alone. Lifecycle
-JSON logs carry the job's request ID without payload contents. The built-in
+JSON logs carry the job's request ID and, when the payload contains an integer
+`user_id`, that user ID. No other payload fields are logged. The built-in
 `weekly_digest` handler reuses the digest send path, ledger, and outbox above,
 including its existing internal retries and terminal outcomes.
+
+At startup the script recovers every `running` job as interrupted: it increments
+attempts, records `InterruptedError`, and queues it with the normal backoff,
+or dead-letters it when attempts reach 5. This one-shot demo assumes the script
+is the only worker process, so any `running` row at startup is interrupted.
+Recovery must only run when no other worker process is active. For
+`weekly_digest`, the digest ledger makes replay safe: an already-sent user/week
+is skipped.
+
+The production worker service exposes `GET /health` per the API conventions.
+As an explicit exception, the demo's one-shot drain script is not a service
+and exposes no `GET /health`; its exit code and summary line are its health
+signal.
 
 The HTTP API and `/health` check are unchanged. The worker is a separate
 process; in the demo it shares the SQLite file with the API.

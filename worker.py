@@ -1,4 +1,8 @@
-"""One-shot SQLite job drain; schema is applied by main.migrate before start."""
+"""One-shot SQLite job drain; schema is applied by main.migrate before start.
+
+Unlike the production worker service's GET /health, this demo is not a
+service: its exit code and summary line are its health signal.
+"""
 
 import json
 import sqlite3
@@ -49,8 +53,30 @@ def backoff_seconds(attempts):
     return min(2 ** attempts, 300)
 
 
+def recover_interrupted(db_path_or_store, now):
+    """Recover running jobs only when no other worker process is active."""
+    conn = sqlite3.connect(_db_path(db_path_or_store))
+    try:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            jobs = conn.execute(
+                "SELECT id, attempts FROM jobs WHERE status = 'running'"
+            ).fetchall()
+            for job_id, previous_attempts in jobs:
+                attempts = previous_attempts + 1
+                conn.execute(
+                    "UPDATE jobs SET status = ?, attempts = ?, last_error = ?, "
+                    "next_attempt_at = ?, updated_at = ? WHERE id = ?",
+                    ("dead" if attempts >= 5 else "queued", attempts,
+                     "InterruptedError", now + backoff_seconds(attempts), now, job_id),
+                )
+        return len(jobs)
+    finally:
+        conn.close()
+
+
 def _log(job, event):
-    print(json.dumps({
+    record = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "service": "worker",
         "level": "error" if event == "dead" else "warning" if event == "retry" else "info",
@@ -58,7 +84,14 @@ def _log(job, event):
         "job_id": job["id"],
         "kind": job["kind"],
         "event": event,
-    }), flush=True)
+    }
+    try:
+        payload = json.loads(job["payload"])
+    except (ValueError, TypeError):
+        payload = None
+    if isinstance(payload, dict) and type(payload.get("user_id")) is int:
+        record["user_id"] = payload["user_id"]
+    print(json.dumps(record), flush=True)
 
 
 def process_due(db_path_or_store, handlers, now) -> int:

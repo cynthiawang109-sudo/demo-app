@@ -46,8 +46,10 @@ def test_enqueue_rejects_invalid_payload(store, payload):
         worker.enqueue(store, "test", payload)
 
 
-def test_valid_payload_and_success(store, capsys):
+@pytest.mark.parametrize("user_context", [{}, {"user_id": 42}])
+def test_valid_payload_and_success(store, capsys, user_context):
     payload = {"id": 1, "week": "private-week", "ratio": 1.5, "yes": True, "other": None}
+    payload.update(user_context)
     job_id = worker.enqueue(store.db_path, "test", payload, "edge-123", now=10)
     assert job(store, job_id)["status"] == "queued"
     assert job(store, job_id)["next_attempt_at"] == 10
@@ -62,7 +64,9 @@ def test_valid_payload_and_success(store, capsys):
     for record in records:
         assert set(record) == {
             "ts", "service", "level", "request_id", "job_id", "kind", "event",
-        }
+        } | set(user_context)
+        if user_context:
+            assert record["user_id"] == 42
         assert record["request_id"] == "edge-123"
         assert record["job_id"] == job_id
         assert record["service"] == "worker"
@@ -151,3 +155,86 @@ def test_cli_uses_environment_database_and_default_outbox(store, tmp_path):
     )
     assert json.loads(result.stdout.splitlines()[-1]) == {"processed": 1}
     assert (tmp_path / "digest-outbox.jsonl").exists()
+
+
+@pytest.mark.parametrize("use_store", [True, False])
+def test_interrupted_job_recovers_and_completes(store, use_store):
+    job_id = worker.enqueue(store, "test", {"id": 1}, now=0)
+    untouched = worker.enqueue(store, "test", {}, now=100)
+    with store._connect() as conn:
+        conn.execute("UPDATE jobs SET status = 'running' WHERE id = ?", (job_id,))
+    target = store if use_store else store.db_path
+    assert worker.recover_interrupted(target, 10) == 1
+    row = job(store, job_id)
+    assert (row["status"], row["attempts"], row["last_error"]) == (
+        "queued", 1, "InterruptedError",
+    )
+    assert row["next_attempt_at"] == 12
+    assert row["updated_at"] == 10
+    assert job(store, untouched)["attempts"] == 0
+    assert worker.recover_interrupted(target, 11) == 0
+    seen = []
+    assert worker.process_due(store, {"test": seen.append}, 11) == 0
+    assert worker.process_due(store, {"test": seen.append}, 12) == 1
+    assert seen == [{"id": 1}]
+    assert job(store, job_id)["status"] == "done"
+    assert job(store, job_id)["last_error"] is None
+
+
+def test_interrupted_fifth_attempt_is_dead_lettered(store):
+    job_id = worker.enqueue(store, "test", {}, now=0)
+    with store._connect() as conn:
+        conn.execute(
+            "UPDATE jobs SET status = 'running', attempts = 4 WHERE id = ?", (job_id,),
+        )
+    assert worker.recover_interrupted(store, 10) == 1
+    row = job(store, job_id)
+    assert (row["status"], row["attempts"], row["last_error"]) == (
+        "dead", 5, "InterruptedError",
+    )
+    assert row["next_attempt_at"] == 42
+    assert row["updated_at"] == 10
+    assert worker.process_due(store, {}, 1000) == 0
+
+
+@pytest.mark.parametrize("user_id", [42, None, "private-user", True])
+def test_weekly_digest_lifecycle_user_context(store, capsys, user_id):
+    def fail(payload):
+        raise RuntimeError("private failure")
+
+    payload = {"week": "private-week"}
+    if user_id is not None:
+        payload["user_id"] = user_id
+    worker.enqueue(store, "weekly_digest", payload, now=0)
+    now = 0
+    for attempt in range(1, 6):
+        worker.process_due(store, {"weekly_digest": fail}, now)
+        now += worker.backoff_seconds(attempt)
+    worker.enqueue(store, "weekly_digest", payload, now=now)
+    worker.process_due(store, {"weekly_digest": lambda payload: None}, now)
+    output = capsys.readouterr().out
+    records = [json.loads(line) for line in output.splitlines()]
+    assert {r["event"] for r in records} == {"claimed", "done", "retry", "dead"}
+    for record in records:
+        if type(user_id) is int:
+            assert record["user_id"] == user_id
+        else:
+            assert "user_id" not in record
+        assert "week" not in record
+    assert "private" not in output
+
+
+def test_cli_recovers_interrupted_jobs_at_startup(store):
+    job_id = worker.enqueue(store, "test", {}, now=0)
+    with store._connect() as conn:
+        conn.execute("UPDATE jobs SET status = 'running' WHERE id = ?", (job_id,))
+    result = subprocess.run(
+        [sys.executable, "scripts/run_worker.py"],
+        env=dict(os.environ, TASKFLOW_DB_PATH=store.db_path),
+        check=True, capture_output=True, text=True,
+    )
+    assert json.loads(result.stdout.splitlines()[-1]) == {"processed": 0}
+    row = job(store, job_id)
+    assert row["status"] == "queued"
+    assert row["attempts"] == 1
+    assert row["last_error"] == "InterruptedError"
