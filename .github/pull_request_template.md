@@ -1,8 +1,7 @@
 ## Summary
 
-<!-- What changes, and why. Link the ticket (for example
-`ai-workspace-kit/tickets/TF-000.md`) or the issue that asked for
-it. -->
+<!-- What changes, and why. Link the GitHub issue that asked
+for it (a URL, or repo#number). -->
 
 ## Validation
 
