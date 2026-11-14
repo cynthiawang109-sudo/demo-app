@@ -79,7 +79,8 @@ The worker uses `TASKFLOW_DB_PATH` (default: `tasks.db` next to `main.py`).
 Failed jobs retry after `min(2 ** attempts, 300)` seconds; the fifth failed
 attempt dead-letters the job and later drains leave it alone. Lifecycle
 JSON logs carry the job's request ID and, when the payload contains an integer
-`user_id`, that user ID. No other payload fields are logged. The built-in
+ID or a validated string ID matching `[A-Za-z0-9_-]{1,64}`, that value as
+`user_id`. No other payload fields are logged. The built-in
 `weekly_digest` handler reuses the digest send path, ledger, and outbox above,
 including its existing internal retries and terminal outcomes.
 

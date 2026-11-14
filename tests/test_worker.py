@@ -251,6 +251,25 @@ def test_cli_recovers_interrupted_jobs_at_startup(store):
     assert row["last_error"] == "InterruptedError"
 
 
+def test_slow_success_records_completion_time_and_preserves_cutoff(store):
+    current_time = 15
+    job_id = worker.enqueue(store, "test", {}, now=10)
+    future_id = worker.enqueue(store, "test", {}, now=20)
+
+    def succeed(payload):
+        nonlocal current_time
+        row = job(store, job_id)
+        assert row["status"] == "running"
+        assert row["updated_at"] == 15
+        current_time = 30
+
+    assert worker.process_due(store, {"test": succeed}, 10, clock=lambda: current_time) == 1
+    row = job(store, job_id)
+    assert row["status"] == "done"
+    assert row["updated_at"] == 30
+    assert job(store, future_id)["status"] == "queued"
+
+
 def test_slow_failure_schedules_from_failure_time_and_preserves_cutoff(store):
     current_time = 10
 

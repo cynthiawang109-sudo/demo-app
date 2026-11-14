@@ -145,7 +145,7 @@ def process_due(db_path_or_store, handlers, now, clock=time.time) -> int:
                     return processed
                 conn.execute(
                     "UPDATE jobs SET status = 'running', updated_at = ? WHERE id = ?",
-                    (now, job["id"]),
+                    (clock(), job["id"]),
                 )
             _log(job, "claimed")
             try:
@@ -169,7 +169,7 @@ def process_due(db_path_or_store, handlers, now, clock=time.time) -> int:
                 with conn:
                     conn.execute(
                         "UPDATE jobs SET status = 'done', last_error = NULL, "
-                        "updated_at = ? WHERE id = ?", (now, job["id"]),
+                        "updated_at = ? WHERE id = ?", (clock(), job["id"]),
                     )
             processed += 1
             _log(job, event)
