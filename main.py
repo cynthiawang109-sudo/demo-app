@@ -202,12 +202,6 @@ class TaskStore:
                 ).fetchone()
                 if previous is None:
                     raise CommentNotFound
-                successor = conn.execute(
-                    "SELECT id FROM comments WHERE supersedes_id = ? LIMIT 1",
-                    (supersedes_id,),
-                ).fetchone()
-                if successor is not None:
-                    raise CommentConflict
             cur = conn.execute(
                 "INSERT INTO comments (task_id, body, supersedes_id) VALUES (?, ?, ?)",
                 (task_id, body, supersedes_id),
