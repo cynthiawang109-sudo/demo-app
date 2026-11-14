@@ -66,6 +66,40 @@ user ID (never an email address), and after 5 attempts the row is
 dead-lettered and left alone until a human resets it. (Diagnosis and
 reset steps: `taskflow-docs/incident-runbook.md`.) The demo sender
 appends to `digest-outbox.jsonl` next to the database.
+## Worker
+
+`worker.py` queues scalar JSON payloads containing IDs (no `email` key) in
+the `jobs` table, created by the same pre-start migration. Enqueue with
+`worker.enqueue(db_path_or_store, "weekly_digest", {"user_id": "demo-user",
+"week": "2026-W46"})`, then drain all currently due jobs once:
+
+    .venv\Scripts\python scripts\run_worker.py
+
+The worker uses `TASKFLOW_DB_PATH` (default: `tasks.db` next to `main.py`).
+Failed jobs retry after `min(2 ** attempts, 300)` seconds; the fifth failed
+attempt dead-letters the job and later drains leave it alone. Lifecycle
+JSON logs carry the job's request ID and, when the payload contains an integer
+ID or a validated string ID matching `[A-Za-z0-9_-]{1,64}`, that value as
+`user_id`. No other payload fields are logged. The built-in
+`weekly_digest` handler reuses the digest send path, ledger, and outbox above,
+including its existing internal retries and terminal outcomes.
+
+At startup the script recovers every `running` job as interrupted: it increments
+attempts, records `InterruptedError`, and queues it with the normal backoff,
+or dead-letters it when attempts reach 5. This one-shot demo assumes the script
+is the only worker process, so any `running` row at startup is interrupted.
+Recovery must only run when no other worker process is active. For
+`weekly_digest`, the digest ledger makes replay safe: an already-sent user/week
+is skipped.
+
+The production worker service exposes `GET /health` per the API conventions.
+As an explicit exception, the demo's one-shot drain script is not a service
+and exposes no `GET /health`; its exit code and summary line are its health
+signal.
+
+The HTTP API and `/health` check are unchanged. The worker is a separate
+process; in the demo it shares the SQLite file with the API.
+
 ## Container
 
 A `Dockerfile` packages the service (deployment.md: merge to `main`
