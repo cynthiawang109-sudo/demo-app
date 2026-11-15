@@ -70,3 +70,13 @@ jobs:
           done
           docker logs demo
           exit 1
+
+  notify-failure:
+    needs: [pytest, spec, lint, build]
+    if: failure()
+    uses: cynthiawang109-sudo/ai-workspace-kit/.github/workflows/slack-notify.yml@main
+    with:
+      text: >-
+        demo-app CI failed on branch ${{ github.head_ref || github.ref_name }}:
+        ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    secrets: inherit
