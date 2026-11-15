@@ -1,0 +1,14 @@
+name: Release notification
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  notify-success:
+    uses: cynthiawang109-sudo/ai-workspace-kit/.github/workflows/slack-notify.yml@052914a8eab5dfcc5a05b2087f7c7942f206065c
+    with:
+      text: >-
+        demo-app release ${{ github.event.release.tag_name }} published successfully:
+        ${{ github.event.release.html_url }}
+    secrets: inherit

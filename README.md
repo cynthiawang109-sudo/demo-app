@@ -1,6 +1,6 @@
 # demo-app
 
-[![tests](https://github.com/cynthiawang109-sudo/demo-app/actions/workflows/tests.yml/badge.svg)](https://github.com/cynthiawang109-sudo/demo-app/actions/workflows/tests.yml)
+[![tests](https://github.com/cynthiawang109-sudo/demo-app/actions/workflows/ci.yml/badge.svg)](https://github.com/cynthiawang109-sudo/demo-app/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/cynthiawang109-sudo/demo-app/actions/workflows/codeql.yml/badge.svg)](https://github.com/cynthiawang109-sudo/demo-app/actions/workflows/codeql.yml)
 
 A minimal FastAPI implementation of the TaskFlow `api-service`, built to the
@@ -101,6 +101,11 @@ The HTTP API and `/health` check are unchanged. The worker is a separate
 process; in the demo it shares the SQLite file with the API.
 
 ## Container
+
+CI failures and published releases post to the workspace Slack channel via the
+shared `cynthiawang109-sudo/ai-workspace-kit/.github/workflows/slack-notify.yml@052914a8eab5dfcc5a05b2087f7c7942f206065c`
+reusable workflow, pinned to a reviewed commit SHA, and this repo's
+`SLACK_WEBHOOK_URL` Actions secret. Bumping the pin is a reviewed change.
 
 A `Dockerfile` packages the service (deployment.md: merge to `main`
 triggers tests, lint, and a container build in CI). The entrypoint
