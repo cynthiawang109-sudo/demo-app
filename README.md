@@ -103,8 +103,9 @@ process; in the demo it shares the SQLite file with the API.
 ## Container
 
 CI failures and published releases post to the workspace Slack channel via the
-shared `cynthiawang109-sudo/ai-workspace-kit/.github/workflows/slack-notify.yml@main`
-reusable workflow and this repo's `SLACK_WEBHOOK_URL` Actions secret.
+shared `cynthiawang109-sudo/ai-workspace-kit/.github/workflows/slack-notify.yml@052914a8eab5dfcc5a05b2087f7c7942f206065c`
+reusable workflow, pinned to a reviewed commit SHA, and this repo's
+`SLACK_WEBHOOK_URL` Actions secret. Bumping the pin is a reviewed change.
 
 A `Dockerfile` packages the service (deployment.md: merge to `main`
 triggers tests, lint, and a container build in CI). The entrypoint
