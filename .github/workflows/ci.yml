@@ -74,7 +74,7 @@ jobs:
   notify-failure:
     needs: [pytest, spec, lint, build]
     if: failure()
-    uses: cynthiawang109-sudo/ai-workspace-kit/.github/workflows/slack-notify.yml@052914a8eab5dfcc5a05b2087f7c7942f206065c
+    uses: cynthiawang109-sudo/ai-workspace-kit/.github/workflows/slack-notify.yml@e3a66ed021ebb250b04702f5c2fc1382f381dc33
     with:
       text: >-
         demo-app CI failed on branch ${{ github.head_ref || github.ref_name }}:
